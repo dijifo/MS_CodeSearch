@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update sys_domain="global" table="sys_app_module">
+    <sys_app_module action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <application display_value="Code Search">f4600b050fc9db80ffb93f5ce1050e01</application>
+        <assessment/>
+        <content_page/>
+        <device_type/>
+        <filter table="sys_metadata">sys_scope=49b7ebcc0fc95b80ffb93f5ce1050e81^sys_class_name!=sys_metadata_delete^sys_class_name!=sn_codesearch_table^sys_class_name!=sys_scope_privilege^EQ<item display_table="sys_scope" display_value="MS CodeSearch" endquery="false" field="sys_scope" goto="false" newquery="false" operator="=" or="false" value="49b7ebcc0fc95b80ffb93f5ce1050e81"/>
+            <item endquery="false" field="sys_class_name" goto="false" newquery="false" operator="!=" or="false" value="sys_metadata_delete"/>
+            <item endquery="false" field="sys_class_name" goto="false" newquery="false" operator="!=" or="false" value="sn_codesearch_table"/>
+            <item endquery="false" field="sys_class_name" goto="false" newquery="false" operator="!=" or="false" value="sys_scope_privilege"/>
+            <item endquery="true" field="" goto="false" newquery="false" operator="=" or="false" value=""/>
+        </filter>
+        <hint/>
+        <homepage/>
+        <image/>
+        <link_type>LIST</link_type>
+        <map_page/>
+        <mobile_title>Application Files</mobile_title>
+        <mobile_view_name>Mobile</mobile_view_name>
+        <name>sys_metadata</name>
+        <order>500</order>
+        <override_menu_roles>false</override_menu_roles>
+        <query/>
+        <report/>
+        <roles>security_admin</roles>
+        <sys_class_name>sys_app_module</sys_class_name>
+        <sys_created_by>sebastian.reinmann</sys_created_by>
+        <sys_created_on>2019-02-04 13:35:23</sys_created_on>
+        <sys_domain>global</sys_domain>
+        <sys_domain_path>/</sys_domain_path>
+        <sys_id>66f5316fdb5f6b00dbc41637059619f5</sys_id>
+        <sys_mod_count>2</sys_mod_count>
+        <sys_name>Application Files</sys_name>
+        <sys_overrides/>
+        <sys_package display_value="MS CodeSearch" source="x_msgfi_codesearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="MS CodeSearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_scope>
+        <sys_update_name>sys_app_module_66f5316fdb5f6b00dbc41637059619f5</sys_update_name>
+        <sys_updated_by>sebastian.reinmann</sys_updated_by>
+        <sys_updated_on>2019-03-22 07:54:21</sys_updated_on>
+        <timeline_page/>
+        <title>Application Files</title>
+        <uncancelable>false</uncancelable>
+        <view_name/>
+        <window_name/>
+    </sys_app_module>
+</record_update>

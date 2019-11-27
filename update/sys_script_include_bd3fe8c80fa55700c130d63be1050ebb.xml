@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_script_include">
+    <sys_script_include action="INSERT_OR_UPDATE">
+        <access>public</access>
+        <active>true</active>
+        <api_name>x_msgfi_codesearch.MS_CodeSearch</api_name>
+        <caller_access/>
+        <client_callable>false</client_callable>
+        <description>Helper class for the custome code search application</description>
+        <name>MS_CodeSearch</name>
+        <script><![CDATA[var MS_CodeSearch = Class.create();
+MS_CodeSearch.prototype = {
+	
+	REGEX_SYSID: /^[0-9a-f]{32}$/,
+	
+	initialize: function() {
+		this.oCodeSearch = new sn_codesearch.CodeSearch();
+		
+		var grSearchGroup = new GlideRecord('sn_codesearch_search_group');
+		
+		var bExists = grSearchGroup.get('name', 'x_msgfi_codesearch.MS CodeSearch');
+		
+		if (!bExists){
+			gs.error('CodeSearch: Default Search Group doesn´t exist');
+		}
+		this.grSearchGroup = grSearchGroup;
+	},
+	
+	addSearchTable: function (sTable, sFields){
+		var oArrayUtil = new global.ArrayUtil();
+		var sSysID = '';
+		var sSearchGroup = this.grSearchGroup.getValue('sys_id');
+		
+		var grTable = new GlideRecord('sn_codesearch_table');
+		grTable.addQuery('table', sTable);
+		grTable.addQuery('search_group', sSearchGroup);
+		grTable.query();
+		
+		var bExists = grTable.next();
+		
+		if (!bExists){
+			grTable.initialize();
+			grTable.search_group = sSearchGroup;
+			grTable.table = sTable;
+			grTable.search_fields = sFields;
+			
+			sSysID = grTable.insert();
+		} else {
+			var aTmpFields = grTable.getValue('search_fields').split(',');
+			var aFields = sFields.split(',');
+			
+			aFields = oArrayUtil.union(aTmpFields, aFields);
+			aFields.sort();
+			
+			grTable.search_fields = aFields.join(',');
+			
+			sSysID = grTable.update();
+		}
+		
+		return sSysID;
+	},
+	
+	removeInvalidTables: function(){
+		
+		var sSearchGroup = this.grSearchGroup.getValue('sys_id');
+		
+		var grTable = new GlideRecord('sn_codesearch_table');
+		grTable.addQuery('search_group', sSearchGroup);
+		grTable.query();
+		
+		while(grTable.next()){
+			var sTable = grTable.getValue('table');
+			
+			if(gs.nil(sTable) || !gs.tableExists(sTable)){
+				grTable.deleteRecord();
+				gs.info('Deleted search table: ' + sTable, this.type);
+			}
+		}
+	},
+	
+	addAllTables: function(){
+		var grDict = this.getDictionary();
+		
+		while (grDict.next()){
+			var sField = grDict.getValue('element');
+			var sTable = grDict.getValue('name');
+			
+			this.addSearchTable(sTable, sField);
+		}
+	},
+	
+	getDictionary: function(){
+		
+		var grDict = new GlideRecord('sys_dictionary');
+		grDict.addEncodedQuery('internal_type.nameINscript,script_plain,script_server,email_script,condition,condition_string,XML,css,html,html_script,html_template^ORelement=reference_qual^ORelement=calculation^nameNOT LIKEvar__m_^NQelementSTARTSWITHscript^ORelementLIKE_script^internal_type.nameSTARTSWITHstring^nameNOT LIKEvar__m_^NQname=sys_variable_value^element=value');
+		grDict.query();
+		
+		return grDict;
+	},
+	
+	/* TODO: Comment and error handling */
+	findRecord: function(sSysID){
+		var bFound = false;
+	
+		var oResult = {
+			className: '',
+			classLabel: '',
+			recordName: '',
+			recordURL: '',
+			sys_created_by: '',
+			sys_created_on: '',
+			sys_updated_on: '',
+			sys_updated_by: '',
+			sys_id: ''
+		};
+		
+		if (!this.REGEX_SYSID.test(sSysID)){
+			gs.error('Not a sys id', this.source);
+			return oResult;
+		}
+
+		// Only search through base tables, e.g. search only through task and not incidents because they are in both tables.
+		var grTable = new GlideRecord('sys_db_object');
+		grTable.addEncodedQuery('super_class=NULL^name!=NULL');
+		// Skip tables where we do not have access to
+		grTable.addEncodedQuery('read_access=true^caller_access!=2^ORcaller_access=');
+		grTable.orderBy('name');
+		grTable.query();
+		
+		var aSkipTablePrefix = ['sysx_', 'ts_', 'v_', 'pa_', 'sys_rollback_', 'sys_audit', 'sh$', 'syslog', 'sys_db_cache', 'sys_cache_flush'];
+		
+		while(grTable.next() && !bFound)
+		{
+			var sTableTemp = grTable.getValue('name');
+			
+			var bSkipTable = false;
+			for (var i = 0; i < aSkipTablePrefix.length; i++){
+				if (sTableTemp.startsWith(aSkipTablePrefix[i])){
+					bSkipTable = true;
+					break;
+				}
+			}
+			if (bSkipTable){
+				continue;
+			}
+			
+			var grItem = new GlideRecord(sTableTemp);
+      
+			if(!grItem.isValid()){
+				continue;
+			}
+			try {
+				bFound = grItem.get(sSysID);
+				if(bFound)
+				{
+					oResult = this._getRecordData(grItem);	
+				}
+			}
+			catch (e){
+				gs.warn('Error for table {0} with message {1}', sTableTemp, e.message);
+			}		
+		}
+		
+		return oResult;		
+	},
+	
+	findReference: function (sSysID, sTable){
+		
+		var aFields = this.getReferenceFields(sTable);
+		var aResult = this.getReferences(sSysID, aFields);
+
+		return aResult;
+	},
+	
+	// https://www.servicenowguru.com/system-definition/find-references-specific-record/
+	getReferences: function(sSysID, aFields) {
+		var aResult = [];
+		for (var i = 0; i < aFields.length; i++) {
+			var sTable = aFields[i].table;
+			var sField = aFields[i].field;
+			var sQuery = aFields[i].query;
+
+			var grRecord = new GlideRecord(sTable);
+			if (!gs.nil(sQuery)) {
+				grRecord.addEncodedQuery(sQuery);
+			}
+
+			grRecord.addQuery(sField, sSysID);
+			grRecord.query();
+
+			while (grRecord.next()) {
+				var oRecord = this._getRecordData(grRecord);
+				oRecord.referenceFieldName = grRecord[sField].getLabel();
+				oRecord.referenceFieldValue = sField;
+				
+				aResult.push(oRecord);
+			}
+		}
+
+		return aResult;
+	},
+	
+	_getRecordData: function (grRecord){
+		var oResult = {};
+		oResult.sys_id = grRecord.getValue('sys_id');
+		oResult.className = grRecord.getRecordClassName();
+		oResult.classLabel = grRecord.getClassDisplayValue();
+		oResult.recordName = grRecord.getDisplayValue();
+		oResult.recordURL = gs.getProperty('glide.servlet.uri') + grRecord.getLink(true);
+		
+		oResult.sys_created_by = grRecord.sys_created_by.getDisplayValue();
+		oResult.sys_updated_by = grRecord.sys_updated_by.getDisplayValue();
+		oResult.sys_updated_on = grRecord.sys_updated_on.getDisplayValue();
+		oResult.sys_created_on = grRecord.sys_created_on.getDisplayValue();
+		
+		return oResult;
+			
+	},
+
+	/* Get all reference fields for the table name. Remove matches if table is empty.*/
+	getReferenceFields: function(sTableName) {
+		var aFields = [];
+		var aCheckTables = [];
+		var aTables = [];
+		var oArrayUtil = new global.ArrayUtil();
+
+		if (sTableName.startsWith('ar_')){
+			sTableName = sTableName.substring(3);
+		}
+
+		var refTable = new global.GlideTableHierarchy(sTableName).getTables();
+		
+		// eslint-disable-next-line no-undef
+		//refTable = j2js(refTable).join();
+
+		//Query dictionary table for reference, document_id, and condition fields
+		var dict = new GlideRecord('sys_dictionary');
+		var qOr = dict.addQuery('reference', 'IN', refTable);
+		qOr.addOrCondition('internal_type', 'document_id');
+		//Do not query audit and log fields
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'var__m_');
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'ecc_');
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'ha_');
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'syslog');
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'sys_history');
+		dict.addQuery('name', 'DOES NOT CONTAIN', '_log');
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'text_search');
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'ts_');
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'sys_watermark');
+		dict.addQuery('name', 'DOES NOT CONTAIN', 'sys_audit');
+		dict.orderBy('name');
+		dict.orderBy('element');
+		dict.query();
+
+		while (dict.next()) {
+			var tblName = dict.name.toString();
+			var sField = dict.element.toString();
+
+			// eslint-disable-next-line no-undef
+			/*
+			var td = GlideTableDescriptor.get(tblName);
+			var ed = td.getElementDescriptor(sField);
+			if (ed == null || !ed.isFirstTableName()) {
+				continue;
+			}
+			*/
+
+			aCheckTables.push(tblName);
+
+			aFields.push({
+				table: tblName,
+				field: sField,
+				ref_table: dict.getValue('reference'),
+				query: ''
+			});
+
+		}
+
+		aCheckTables = oArrayUtil.unique(aCheckTables);
+
+		for (var i = 0; i < aCheckTables.length; i++) {
+			var sTable = aCheckTables[i];
+			var grTable = new GlideRecord('sys_db_object');
+			grTable.addEncodedQuery('read_access=true^caller_access!=2^ORcaller_access=');
+			grTable.addQuery('name', sTable);
+			grTable.setLimit(1);
+			grTable.query();
+
+			if (!grTable.next()){
+				continue;
+			}
+
+			var grData = new GlideRecord(sTable);
+			grData.setLimit(1);
+			grData.query();
+
+			if (grData.hasNext()) {
+				aTables.push(sTable);
+			}
+		}
+
+		aFields = aFields.filter(function(oField) {
+			return aTables.indexOf(oField.table) > -1;
+		});
+
+		// Variables for RITMs etc.
+		aFields.push({
+			table: 'sc_item_option_mtom',
+			field: 'sc_item_option.value',
+			ref_table: sTableName,
+		});
+
+		return aFields;
+	},
+	
+	type: 'MS_CodeSearch'
+};]]></script>
+        <sys_class_name>sys_script_include</sys_class_name>
+        <sys_created_by>sebastian.reinmann</sys_created_by>
+        <sys_created_on>2018-04-13 15:32:07</sys_created_on>
+        <sys_id>bd3fe8c80fa55700c130d63be1050ebb</sys_id>
+        <sys_mod_count>54</sys_mod_count>
+        <sys_name>MS_CodeSearch</sys_name>
+        <sys_package display_value="MS CodeSearch" source="x_msgfi_codesearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="MS CodeSearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_scope>
+        <sys_update_name>sys_script_include_bd3fe8c80fa55700c130d63be1050ebb</sys_update_name>
+        <sys_updated_by>sebastian.reinmann</sys_updated_by>
+        <sys_updated_on>2019-06-25 10:02:57</sys_updated_on>
+    </sys_script_include>
+</record_update>

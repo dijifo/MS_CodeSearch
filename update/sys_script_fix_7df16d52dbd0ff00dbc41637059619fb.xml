@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_script_fix">
+    <sys_script_fix action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <before>false</before>
+        <description>Remove all search tables which are not available on the instance</description>
+        <flush_cache>false</flush_cache>
+        <name>CleanUp not found tables for CodeSearch</name>
+        <record_for_rollback>false</record_for_rollback>
+        <run_once>true</run_once>
+        <script><![CDATA[(function(){
+	new x_msgfi_codesearch.MS_CodeSearch().removeInvalidTables();
+})();]]></script>
+        <sys_class_name>sys_script_fix</sys_class_name>
+        <sys_created_by>sebastian.reinmann</sys_created_by>
+        <sys_created_on>2019-03-22 07:57:21</sys_created_on>
+        <sys_id>7df16d52dbd0ff00dbc41637059619fb</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>CleanUp not found tables for CodeSearch</sys_name>
+        <sys_package display_value="MS CodeSearch" source="x_msgfi_codesearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="MS CodeSearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_scope>
+        <sys_update_name>sys_script_fix_7df16d52dbd0ff00dbc41637059619fb</sys_update_name>
+        <sys_updated_by>sebastian.reinmann</sys_updated_by>
+        <sys_updated_on>2019-03-22 07:57:21</sys_updated_on>
+        <unloadable>false</unloadable>
+    </sys_script_fix>
+</record_update>

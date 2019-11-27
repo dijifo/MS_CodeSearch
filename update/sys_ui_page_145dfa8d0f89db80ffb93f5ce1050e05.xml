@@ -1,0 +1,461 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_ui_page">
+    <sys_ui_page action="INSERT_OR_UPDATE">
+        <category>general</category>
+        <client_script><![CDATA[angular.module('csapp', []);
+angular.module('csapp').controller('CSAppCtrl', function($scope, $http) {
+	$scope.loadingSpinner = new Array(200);
+
+	// split again and assign the array. This variable will now be available in the client script for further processing
+	$scope.aSearchableTables = '${jvar_table_list}'.split(',');
+	$scope.nAllTables = $scope.aSearchableTables.length;
+	$scope.nFinishedTables = 0;
+	$scope.results = [];
+	
+	// Function to retrieve specific URL params (since $location is not working as expected)
+	$scope.getParmVal = function(name) {
+		var url = document.URL.parseQuery();
+		if (url[name]) {
+			return decodeURI(url[name]);
+		} else {
+			return '';
+		}
+	};
+	$scope.searchTerm = $scope.getParmVal('sysparm_search');
+	$scope.searchAllApplications = true;
+	
+	$scope.sn_codesearch_getResults = function() {
+		$scope.results = [];
+		$scope.updateProgress(0);
+		$j('.progress').show();
+
+		var userToken = '$[gs.getSessionToken()]';
+
+		var sSearchTerm = $scope.searchTerm;
+		if (sSearchTerm != ''){
+			var sURL = document.location.pathname + '?sysparm_search=' + sSearchTerm;
+			window.history.replaceState(null, null, sURL);
+		}
+
+		if (!sSearchTerm) {
+			alert('No search term provided.');
+			return;
+		}
+		
+		var limit = $[gs.getProperty('sn_codesearch.search.results.max', 500)];
+		var bSearchAllScopes = $scope.searchAllApplications;
+
+		// Loop over Array with searchable tables provided above and call API for each of them
+		for (var i = 0; i < $scope.aSearchableTables.length; i++) {
+			$scope.startAsyncRequest($scope.aSearchableTables[i], sSearchTerm, userToken, bSearchAllScopes, limit);	
+		}
+	};
+
+	$scope.updateProgress = function(nValue) {
+		var $progress = $j('.progress-bar');
+		
+		if (nValue == 0) {
+			$scope.nFinishedTables = 0;
+		} else {
+			$scope.nFinishedTables++;
+		}
+		
+		nValue = Math.round ($scope.nFinishedTables * 100 / $scope.nAllTables);
+		
+		$progress.css('width', nValue+'%').attr('aria-valuenow', nValue).html(nValue+'%');
+		
+		if ($scope.nFinishedTables == $scope.nAllTables){
+			setTimeout(function(){
+				$j('.progress').hide();
+			}, 3000);
+		}
+	};
+
+	$scope.startAsyncRequest = function(sTableName, sSearchTerm, userToken, bSearchAllScopes, nLimit) {
+		var nStart = Date.now();
+		
+		// Data object is mandatory for request
+		$http({
+			method: 'GET',
+			url: '/api/x_msgfi_codesearch/ms_code_search/search',
+			data: {},
+			params: {
+				limit : nLimit,
+				current_app : 'sn_codesearch',
+				table: sTableName,
+				term : sSearchTerm,
+				search_group: 'x_msgfi_codesearch.MS CodeSearch',
+				search_all_scopes : bSearchAllScopes
+			},	
+			headers: {
+				'X-UserToken' : userToken,
+				'Content-Type': 'application/json'
+			}
+		}).then(function(response) {
+			var nStop = Date.now();
+			var nDuration = $scope.precisionRound((nStop - nStart)/1000, 3);
+		
+			var result = response.data.result;
+
+			$scope.processResult(result, nDuration);
+			$scope.updateProgress();
+		}, function(error) {
+			console.log('Error - unable to complete search. Message is ' + error);
+		});
+	};
+
+	$scope.processResult = function(result, nDuration) {
+		if(!result || !result.hits || result.hits.length == 0) {
+			return;
+		}
+		
+		result.duration = nDuration;
+		
+		for (var i = 0; i < result.hits.length; i++) {
+			var oHit = result.hits[i];
+			var dtUpdated = new Date(oHit.modified);
+			oHit.date = $scope.formatDate(dtUpdated);
+			
+			var trimmedName = oHit.name || '';
+			trimmedName = trimmedName.replace(/\s/g,'').replace(/[^a-z0-9\s]/gi, '');
+			oHit.trimmedName = trimmedName;
+			
+			for (var j = 0; j < oHit.matches.length; j++) {
+				var oMatch = oHit.matches[j];
+				oMatch.aCodeSnippets = [];
+				var codeSnippet = '';
+				var nPreviousLine, nCurrentLine;
+				for (var k = 0; k < oMatch.lineMatches.length; k++) {
+					var oLineMatch = oMatch.lineMatches[k];
+					nCurrentLine = oLineMatch.line;
+					if (oLineMatch.escaped.trim().length > 0) {
+						if (k == 0 || nCurrentLine - 1 == nPreviousLine) {
+							codeSnippet += oLineMatch.context + '\n';
+						} else {
+							oMatch.aCodeSnippets.push([nCurrentLine, codeSnippet]);
+							codeSnippet = oLineMatch.context + '\n';
+						}
+					} else {
+						oMatch.aCodeSnippets.push([nCurrentLine, codeSnippet]);
+						codeSnippet = '';
+					}
+					nPreviousLine = nCurrentLine; 
+				}
+				oMatch.aCodeSnippets.push([nCurrentLine, codeSnippet]);
+			}
+		}
+		$scope.results.push(result);
+	};
+	
+	$scope.sn_codesearch_findRecord = function() {
+		// var oResult = oCodeSearch.search('findRecord');
+		console.log(oCodeSearch);
+	};
+	
+	$scope.sn_codesearch_findReference = function() {
+		
+	};
+
+	// Format date for display
+	$scope.formatDate = function(dtDate) {
+		var sDate = dtDate.getUTCFullYear() + '-' +
+				('0' + (dtDate.getUTCMonth()+1)).slice(-2) + '-' +
+				('0' + dtDate.getUTCDate()).slice(-2) + ' ' +
+				('0' + dtDate.getUTCHours()).slice(-2) + ':' +
+				('0' + dtDate.getUTCMinutes()).slice(-2) + ':' +
+				('0' + dtDate.getUTCSeconds()).slice(-2);
+		return sDate;
+	};
+
+	// Round duration value for display
+	$scope.precisionRound = function(number, precision) {
+		var factor = Math.pow(10, precision);
+		return Math.round(number * factor) / factor;
+	};
+});]]></client_script>
+        <description>This UI Page implements the ServiceNow CodeSearch API and gives you an userfriedly option to search for code.&#13;
+If you want to search in other custome tables, you have to add a record to table sn_codesearch_table for the default Search Group</description>
+        <direct>false</direct>
+        <endpoint>x_msgfi_codesearch_MS_CodeSearch.do</endpoint>
+        <html><![CDATA[<?xml version="1.0" encoding="utf-8" ?>
+<!--
+	Implemented by Media Solutions (www.media-solutions.de/en)
+	If you have any questions, send us a mail: sn@media-solutions.de
+
+	You can add a search term directly in the url via param sysparm_search, e.g. x_msgfi_codesearch_MS_CodeSearch.do?sysparm_search=GlideRecord
+
+	Further steps:
+		- Refactor and optimize code
+		- Comment Code
+		- Implement Property Handling
+		- Implement Methods to add tables to sn_codesearch_table
+		- Implement SysID Search
+		- Implement Reference Search
+	
+-->
+<j:jelly trim="false" xmlns:j="jelly:core" xmlns:g="glide" xmlns:j2="null" xmlns:g2="null">
+<j:set var="jvar_form_class" value="navbar-form navbar-left"/>
+
+	<g:requires name="styles/heisenberg/heisenberg_all.css" includes="true" />
+	<g:requires name="scripts/lib/jquery_includes.js" />
+	<g:requires name="scripts/heisenberg/heisenberg_all.js" />
+	<g:requires name="x_msgfi_codesearch.prism.js.jsdbx" />
+	<g:requires name="x_msgfi_codesearch.MS_CodeSearch.jsdbx" />
+	
+	<!-- Get all searchable tables, and join them with comma -->
+	<g:evaluate var="jvar_table_list" object="false" copyToPhase2="true">
+		var oCodeSearch = new sn_codesearch.CodeSearch();
+		oCodeSearch.setSearchGroup('x_msgfi_codesearch.MS CodeSearch');
+		var sTables = oCodeSearch.getAllSearchableTables().join(',');
+		sTables;
+	</g:evaluate>
+	
+	<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.6.4/angular.min.js"></script>
+	
+	<!-- Set document page title -->
+	<script>top.document.title = 'Code Search';</script>
+	
+	<link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous"></link>
+	
+	<link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.12.2/themes/prism-coy.css" rel="stylesheet" crossorigin="anonymous"></link>
+	<link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.12.2/plugins/line-highlight/prism-line-highlight.min.css" rel="stylesheet"></link>
+	<link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.12.2/plugins/line-numbers/prism-line-numbers.css" rel="stylesheet"></link>
+	<!-- ms_codesearch css -->
+	<link href="3f9c4fbfdb05f700dbc416370596193a.cssdbx?" rel="stylesheet" type="text/css" />
+
+<div ng-app="csapp" ng-controller="CSAppCtrl as appctrl">	
+	 <nav class="nav navbar-nav navbar navbar-default navbar-fixed-top">
+	  <div class="container-fluid center">
+		  <div class="navbar-header">
+			  <a class="navbar-brand" href="#">
+				  <h1 class="brand">CodeSearch</h1>
+			  </a>
+		  </div>
+		<g:ui_form>
+			<div class="form-group">
+				<div class="col-xs-4">
+					<input id="sn_codesearch_term" type="text" class="form-control" placeholder="Search Term" ng-model="searchTerm"/>
+				</div>
+			</div>
+			<div class="form-group"><div class="col-xs-2"> </div></div>
+			<div class="form-group">
+				<div class="checkbox">
+					<label class="checkbox-label">
+						<input id="sn_codesearch_search_all_scopes" class="checkbox" type="checkbox" name="sn_codesearch_search_all_scopes" ng-model="searchAllApplications"/>
+						$[SP]$[SP]Search All Applications
+					</label>
+				</div>
+			</div>
+			<div class="form-group"><div class="col-xs-2"> </div></div>
+			<div class="form-group">
+				<div class="col-xs-2">
+					<button type="button" class="btn btn-primary" ng-click="sn_codesearch_getResults()"><span class="glyphicon glyphicon-search"></span>$[SP]$[SP]Search</button>
+				</div>
+			</div>
+			<div class="form-group">
+				<div class="col-xs-2">
+					<button type="button" class="btn btn-primary" ng-click="sn_codesearch_findRecord()"><span class="glyphicon glyphicon-search"></span>$[SP]$[SP]Find Record</button>
+				</div>
+			</div>
+			<div class="form-group">
+				<div class="col-xs-2">
+					<button type="submit" class="btn btn-primary" onclick="return oCodeSearch.search('findReference')"><span class="glyphicon glyphicon-search"></span>$[SP]$[SP]Find References</button>
+				</div>
+			</div>
+		</g:ui_form>
+		  
+		<div class="nav navbar-nav navbar-right">
+			<div class="col-xs-2">
+				<button type="button" class="btn btn-warning btn-lg" id="btn-top">
+					<span class="glyphicon glyphicon-chevron-up" aria-hidden="true" style="color:white;"></span>
+				</button>
+			</div>
+		</div>
+	  </div>
+	</nav> 
+	<div class="progress" style="display:none;">
+	  <div class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width:0%">
+		0%
+	  </div>
+	</div>
+	<div id="loading-spinner" style="display:none;">
+		<div class="spinner">
+			<div ng-repeat="x in loadingSpinner track by $index"> 
+				<div class="rect{{$index%7}}" ng-class="['red','green','blue'][$index%3]"></div>
+			</div>
+		</div>
+	</div>
+
+	<div id="sn_codesearch_results">
+		<div name="result" ng-repeat="result in results">
+			<!-- HEADER -->
+			<div class='panel panel-default'>
+				<div class='panel-heading' onclick='Prism.highlightAllUnder(this.nextSibling, false);' role='tab' id='label_{{result.recordType}}'>
+					<a data-toggle='collapse' class="collapsed" href='#result_{{result.recordType}}' aria-expanded='false' aria-controls='result_{{result.recordType}}'>
+						<h4 class='panel-title'>
+							<span class='glyphicon'></span>$[SP]{{result.tableLabel}} (in {{result.duration}} seconds)<span class='badge pull-right'>{{result.hits.length}}</span>
+						</h4>
+					</a>				
+				</div>
+				<!-- BODY -->
+				<div name='result_{{result.recordType}}' id='result_{{result.recordType}}' class='panel-collapse collapse' role='tabpanel' aria-labelledby='label_{{result.recordType}}'>
+					<div class='panel-body'>
+						<div>
+							<!-- RESULT -->
+							<div class='panel panel-primary' ng-repeat="hit in result.hits">
+								<div class='panel-heading panel-heading-inner' role='tab' id='record_label_{{hit.trimmedName}}'>
+									<a data-toggle='collapse' data-target='' href='#record_{{hit.trimmedName}}' aria-expanded='false' aria-controls='record_{{hit.trimmedName}}'>
+										<h5 class='panel-title panel-title-inner'>
+											<span class='glyphicon'></span>$[SP]<b>{{hit.name}}</b>
+										</h5>
+									</a>
+									<div class='btn-group pull-right file-badge-grp' role='group'>
+										<a class='btn btn-success' href='{{hit.className}}.do?sys_id={{hit.sysId}}' target='_blank' title='Click to open the file in a new tab'>
+											<!--<span class='glyphicon glyphicon-file'></span>File-->
+											<i class="glyphicon glyphicon-file"></i> File
+										</a>
+										<a class='btn btn-success' href='#'>
+											<span class='badge'>{{hit.matches[0].count}}</span>
+										</a>
+									</div>
+								</div>
+								<div id='record_{{hit.trimmedName}}' class='panel-collapse collapse in' role='tabpanel' aria-labelledby='record_label_{{hit.trimmedName}}'>
+									<ul class='list-group'>
+										<li class='list-group-item'>
+											<p>{{hit.matches[0].fieldLabel}}<span class='label label-default pull-right'>Last modified:$[SP]{{hit.date}}</span></p>
+											<div ng-repeat="snippet in hit.matches[0].aCodeSnippets">
+												<pre class='lang-javascript line-numbers' data-start='{{snippet[0]}}'>
+													<code class='lang-javascript'>
+														{{snippet[1]}}
+													</code>
+												</pre>
+											</div>
+										</li>
+									</ul>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	
+	<div id="template_record" style="display:none">
+		<div id="record">
+			<table class="table table-bordered">
+				<thead>
+					<th scope="col" class="col-xs-1">Display Name</th>
+					<th scope="col" class="col-xs-1">Class</th>
+					<th scope="col" class="col-xs-1">Created By</th>
+					<th scope="col" class="col-xs-1">Updated By</th>
+				</thead>
+				<tr>
+					<td class="col-xs-1"><a href="§§className§§.do?sys_id=§§sys_id§§" target="_blank">§§recordName§§</a></td>
+					<td class="col-xs-1">§§classLabel§§ [§§className§§]</td>
+					<td class="col-xs-1">§§sys_created_by§§ [§§sys_created_on§§]</td>
+					<td class="col-xs-1">§§sys_updated_by§§ [§§sys_updated_on§§]</td>
+				</tr>
+			</table>
+		</div>
+	</div>
+
+	<div id="template_reference" style="display:none">
+		<div id="reference">
+			<table class="table table-bordered">
+				<thead>
+					<th scope="col" class="col-xs-1">Display Name</th>
+					<th scope="col" class="col-xs-1">Class</th>
+					<th scope="col" class="col-xs-1">Reference Field</th>
+					<th scope="col" class="col-xs-1">Created By</th>
+					<th scope="col" class="col-xs-1">Updated By</th>
+				</thead>
+				<tr style="display:none" id="reference-row">
+					<td class="col-xs-1"><a href="§§className§§.do?sys_id=§§sys_id§§" target="_blank">§§recordName§§</a></td>
+					<td class="col-xs-1">§§classLabel§§ [§§className§§]</td>
+					<td class="col-xs-1">§§referenceFieldName§§ [§§referenceFieldValue§§]</td>
+					<td class="col-xs-1">§§sys_created_by§§ [§§sys_created_on§§]</td>
+					<td class="col-xs-1">§§sys_updated_by§§ [§§sys_updated_on§§]</td>
+				</tr>
+			</table>
+		</div>
+	</div>
+	
+	<div id="template" style="display:none">
+		<div id="header">
+			<div class='panel panel-default'>
+				<div class='panel-heading' onclick='Prism.highlightAllUnder(this.nextSibling, false);' role='tab' id='label_§§recordType§§'>
+					<a data-toggle='collapse' class="collapsed" href='#result_§§recordType§§' aria-expanded='false' aria-controls='result_§§recordType§§'>
+						<h4 class='panel-title'>
+							<span class='glyphicon'></span>$[SP]§§tableLabel§§ (in §§duration§§ seconds)<span class='badge pull-right'>§§hits§§</span>
+						</h4>
+					</a>				
+				</div>
+				§§body§§
+			</div>
+		</div>
+		<div id="body">
+			<div id='result_§§recordType§§' class='panel-collapse collapse' role='tabpanel' aria-labelledby='label_§§recordType§§'>
+				<div class='panel-body'>
+					<div id='toggle_§§recordType§§'>
+						§§result§§
+					</div>
+				</div>
+			</div>
+		</div>
+		<div id="result">
+			<div class='panel panel-primary'>
+				<div class='panel-heading panel-heading-inner' role='tab' id='record_label_§§trimmedName§§'>
+					<a data-toggle='collapse' href='#record_§§trimmedName§§' aria-expanded='false' aria-controls='record_§§trimmedName§§'>
+						<h5 class='panel-title panel-title-inner'>
+							<span class='glyphicon'></span>$[SP]<b>§§name§§</b>
+						</h5>
+					</a>
+					<div class='btn-group pull-right file-badge-grp'>
+						<a class='btn btn-success' href='§§className§§.do?sys_id=§§sysId§§' target='_blank' title='test'>
+							<!--<span class='glyphicon glyphicon-file'></span>File-->
+							<i class="glyphicon glyphicon-file"></i> File
+						</a>
+						<a class='btn btn-success' href='#'>
+							<span class='badge'>§§matches§§</span>
+						</a>
+					</div>
+				</div>
+				<div id='record_§§trimmedName§§' class='panel-collapse collapse in' role='tabpanel' aria-labelledby='record_label_§§trimmedName§§'>
+					<ul class='list-group'>
+						§§text§§
+					</ul>
+				</div>
+			</div>
+		</div>
+		<div id="code">
+			<li class='list-group-item'>
+				<p>§§fieldLabel§§<span class='label label-default pull-right'>Last modified:$[SP]§§date§§</span></p>
+				§§codePart§§
+			</li>
+		</div>
+		<div id="codePart">
+			<pre class='lang-javascript line-numbers' data-start='§§line§§'>
+				<code class='lang-javascript'>
+					§§code§§
+				</code>
+			</pre>
+		</div>
+	</div>
+	</div>
+</j:jelly>]]></html>
+        <name>MS_CodeSearch</name>
+        <processing_script/>
+        <sys_class_name>sys_ui_page</sys_class_name>
+        <sys_created_by>sebastian.reinmann</sys_created_by>
+        <sys_created_on>2018-03-23 07:52:47</sys_created_on>
+        <sys_id>145dfa8d0f89db80ffb93f5ce1050e05</sys_id>
+        <sys_mod_count>278</sys_mod_count>
+        <sys_name>MS_CodeSearch</sys_name>
+        <sys_package display_value="MS CodeSearch" source="x_msgfi_codesearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="MS CodeSearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_scope>
+        <sys_update_name>sys_ui_page_145dfa8d0f89db80ffb93f5ce1050e05</sys_update_name>
+        <sys_updated_by>stefan.kreuzer</sys_updated_by>
+        <sys_updated_on>2019-10-07 14:31:59</sys_updated_on>
+    </sys_ui_page>
+</record_update>

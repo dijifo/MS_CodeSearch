@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_ui_script">
+    <sys_ui_script action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <description>UI script for methods used by the code search application</description>
+        <global>false</global>
+        <name>x_msgfi_codesearch.MS_CodeSearch</name>
+        <script><![CDATA[var x_msgfi_codesearch = x_msgfi_codesearch || {};
+
+x_msgfi_codesearch.MS_CodeSearch = (function(window) {
+	"use strict";
+	
+	var iSearchLimit = 500;
+	var sSearchGroup = 'x_msgfi_codesearch.MS CodeSearch';
+	var aSearchTables = [];
+	var sUserToken = '';
+	var oTemplates = {};
+	var $output;
+	var $searchField;
+	var $j;
+	
+	var endpoints = {
+		'findCode': '/api/sn_codesearch/code_search/search',
+		'findRecord': '/api/x_msgfi_codesearch/ms_code_search/findRecord',
+		'findReference': '/api/x_msgfi_codesearch/ms_code_search/findReference'
+	};
+	
+	function startSpinner(){
+		$j("#loading-spinner").show();
+	}
+	
+	function stopSpinner(){
+		$j("#loading-spinner").hide();
+	}
+	
+	function getData(sAction, oData, fCallback){
+		var sEndpoint = endpoints[sAction];
+		
+		if (typeof sEndpoint === "undefined"){
+			console.error('No endpoint found for action ' + sAction);
+			return false;
+		}
+		
+		var oRequest = {
+			dataType: 'json',
+			headers : {"X-UserToken" : sUserToken},
+			data: oData
+		};
+		
+		var jqxhr = $j.ajax(sEndpoint, oRequest).done(fCallback).
+			fail(function(jqXHR, textStatus, errorThrown) {
+				console.log("Error - unable to complete search. Message is " + errorThrown);
+			});
+	}
+	
+	function search_findRecord(sSearchTerm, fCallback){
+		
+		if(!isValidSysID(sSearchTerm)){
+			alert("Please input valid sys_id");
+			return;
+		} 
+		
+		startSpinner();
+		
+		var oData = {
+			term: sSearchTerm
+		};
+		
+		if (typeof fCallback != "function"){
+			fCallback = getData_findRecord;
+		}
+		
+		getData('findRecord', oData, fCallback);
+	}
+	
+	function search_findReference(data, textStatus, jqXHR){
+		getData_findRecord(data, textStatus, jqXHR);
+		
+		var oRecord = data.result;
+		
+		if (oRecord.sys_id == "" || oRecord.className == ""){
+			console.log("No record found.");
+			return;
+		}
+		
+		startSpinner();
+		console.log("Searching Reference for table " + oRecord.className);
+					
+		var oData = {
+			term: oRecord.sys_id,
+			table: oRecord.className
+		};
+		
+		getData('findReference', oData, getData_findReference);
+	}
+	
+	function getData_findReference(data, textStatus, jqXHR){
+		
+		var aData = data.result;
+		console.log(data.result);
+		
+		var strTable = oTemplates['reference'];
+		var $refTable = $j(strTable);
+		var strRefTableTR = '<tr>' + $refTable.find('#reference-row').html() + '</tr>';
+		var strTableTR = '';
+		
+		if (aData.length == 0){
+			$j("<h2>No References found</h2>").appendTo($output);
+			return;
+		}
+		
+		for (var i = 0; i < aData.length; i++){
+			var strRecord = strRefTableTR;
+			
+			for (var e in aData[i]){
+				var strField = "§§" + e + "§§";
+				strRecord = replaceAll(strRecord, strField, aData[i][e]);
+			}
+			
+			strTableTR += strRecord;
+		}
+
+		$j(strTableTR).appendTo($refTable.find("tbody"));
+		
+		$refTable.appendTo($output);
+		
+		console.log("Finished Reference Search");
+		stopSpinner();
+	}
+	
+	function getData_findRecord(data, textStatus, jqXHR){
+		var result = data.result;
+		var strRecord = oTemplates['record'];
+		
+		for (var e in result){
+			var strField = "§§" + e + "§§";
+			strRecord = replaceAll(strRecord, strField, result[e]);
+		}
+
+		$j(strRecord).appendTo($output);
+		stopSpinner();
+	}
+	
+	function replaceAll(data, search, replacement) {
+		return data.replace(new RegExp(search, 'g'), replacement);
+	}
+	
+	function precisionRound(number, precision) {
+	  var factor = Math.pow(10, precision);
+	  return Math.round(number * factor) / factor;
+	}
+	
+	function formatDate(dtDate){
+		var sDate = dtDate.getUTCFullYear() + "-" +
+				("0" + (dtDate.getUTCMon$th()+1)).slice(-2) + "-" +
+				("0" + dtDate.getUTCDate()).slice(-2) + " " +
+				("0" + dtDate.getUTCHours()).slice(-2) + ":" +
+				("0" + dtDate.getUTCMinutes()).slice(-2) + ":" +
+				("0" + dtDate.getUTCSeconds()).slice(-2);
+
+		return sDate;
+	}
+	
+	function isValidSysID(sID){
+		return /^[0-9a-f]{32}$/.test(sID);
+	}
+
+	return {
+		getData_findReference: getData_findReference,
+		
+		setQuery: function(j){
+			$j = j;
+		},
+		setSearchField: function(sField){
+			$searchField = $j(sField);
+		},
+		getSearchField: function(){
+			return $searchField;
+		},
+		setOutput: function(sOutput){
+			$output = $j(sOutput);
+		},
+		getOutput: function(){
+			return $output;
+		},
+		setSearchLimit: function(iLimit){
+			iSearchLimit = iLimit;
+		},
+		getSearchLimit: function(){
+			return sSearchLimit;
+		},
+		setSearchGroup: function(sGroup){
+			sSearchGroup = sGroup;
+		},
+		getSearchGroup: function(){
+			return sSearchGroup;
+		},
+		setTemplate: function(sKey, sHTML){
+			oTemplates[sKey] = sHTML;
+		},
+		getTemplate: function(sKey){
+			return oTemplates[sKey];
+		},
+		setUserToken: function(sToken){
+			sUserToken = sToken;
+		},
+		getUserToken: function(){
+			return sUserToken;
+		},
+		setSearchTables: function(sTables){
+			aSearchTables = sTables.split(',');
+		},
+		getSearchTables:  function(){
+			return aSearchTables;
+		},
+		search: function(sAction){
+			try {
+				$output.html('');
+				var sSearchTerm = $searchField.val().trim();
+
+				// TODO use correct window window == window.top
+				if (sSearchTerm != ''){
+					if (window == window.top){
+						var sURL = window.document.location.pathname + '?sysparm_search=' + sSearchTerm + '&action=' + sAction;
+						window.history.replaceState(null, null, sURL);
+					} 
+				}
+
+				console.log('searching with action ' + sAction + ' and term ' + sSearchTerm);
+				switch(sAction){
+					case 'findRecord': search_findRecord(sSearchTerm); break;
+					case 'findReference': search_findRecord(sSearchTerm, search_findReference); break;
+					default: console.error('No defined function found for action ' + sAction);
+				}
+			}
+			catch (e){
+				console.error(e);
+			}
+			
+			return false;
+		},
+		
+		type:  "MS_CodeSearch"
+	};
+})(window);
+]]></script>
+        <script_name>MS_CodeSearch</script_name>
+        <sys_class_name>sys_ui_script</sys_class_name>
+        <sys_created_by>sebastian.reinmann</sys_created_by>
+        <sys_created_on>2019-04-12 09:12:50</sys_created_on>
+        <sys_id>b62c71c5db70b340dbc4163705961979</sys_id>
+        <sys_mod_count>39</sys_mod_count>
+        <sys_name>x_msgfi_codesearch.MS_CodeSearch</sys_name>
+        <sys_package display_value="MS CodeSearch" source="x_msgfi_codesearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="MS CodeSearch">49b7ebcc0fc95b80ffb93f5ce1050e81</sys_scope>
+        <sys_update_name>sys_ui_script_b62c71c5db70b340dbc4163705961979</sys_update_name>
+        <sys_updated_by>sebastian.reinmann</sys_updated_by>
+        <sys_updated_on>2019-05-03 14:29:01</sys_updated_on>
+        <ui_type>0</ui_type>
+        <use_scoped_format>false</use_scoped_format>
+    </sys_ui_script>
+</record_update>
